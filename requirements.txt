@@ -5,5 +5,4 @@ numpy==1.24.4
 pip==25.0
 pyzmq==26.2.1
 setuptools==56.0.0
-spray_cobot==0.1
 -e .
