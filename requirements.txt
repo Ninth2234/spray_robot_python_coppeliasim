@@ -2,6 +2,8 @@ asyncio==3.4.3
 cbor==1.0.0
 coppeliasim_zmqremoteapi_client==2.0.4
 numpy==1.24.4
+pip==25.0
 pyzmq==26.2.1
-# Editable install with no version control (spray_cobot==0.1)
--e c:\users\ninth\documents\myproject\spray_robot\spray_copsim
+setuptools==56.0.0
+spray_cobot==0.1
+-e .
