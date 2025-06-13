@@ -21,8 +21,10 @@ class SprayGun:
         self.name = name
         self.spray_config = default_spray_config
         self.objh = sim.getObject(self.name)
-
+        self.rayh = sim.getObject(self.name+"/JetVolume")
         self._write_param(default_spray_config)
+        
+        
 
     def _write_param(self,data):
         write_param(self.sim,self.objh,"spray",data)
@@ -32,9 +34,15 @@ class SprayGun:
     
     def on(self):
         self._write_param({'painting_enabled':True})
+        
+
+        # ray_dummyh = self.sim.getObject(self.name+"/JetVolume_dummy")
+        # self.sim.setBoolProperty(ray_dummyh,"showVolume",True)
 
     def off(self):
         self._write_param({'painting_enabled':False})
+        # ray_dummyh = self.sim.getObject(self.name+"/JetVolume_dummy")
+        # self.sim.setBoolProperty(ray_dummyh,"showVolume",False)
 
     def set_spray_cone(self,angle_deg):
         self._write_param({'jet_angle':angle_deg*3.14/180})
@@ -62,9 +70,10 @@ if __name__ == "__main__":
     spray_gun = SprayGun(sim,"/PaintNozzle")
     
     sim.startSimulation()
-    spray_gun.on()
     sleep(1)
+    spray_gun.on()
+    sleep(5)
     spray_gun.off()
-    print(spray_gun.get_spray_obj(sim.getObject("/Cuboid")))
+    # print(spray_gun.get_spray_obj(sim.getObject("/Cuboid")))
     sim.stopSimulation()
     # spray_gun.clear_spray()

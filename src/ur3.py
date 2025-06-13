@@ -1,9 +1,10 @@
 import time
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 import math
+import threading
 
 class PathPlanner:
-    def __init__(self,sim,ctrl_pts,smoothness):
+    def __init__(self,sim,ctrl_pts,smoothness=0.8,create_new_path=True,exist_path_handle=None):
         """ create path
 
         Args:
@@ -14,7 +15,10 @@ class PathPlanner:
         self.sim = sim
         self.ctrl_pts = ctrl_pts
 
-        self.objh = self.sim.createPath(ctrl_pts,8,100,smoothness)
+        if create_new_path:
+            self.objh = self.sim.createPath(ctrl_pts,8,100,smoothness)
+        else:
+            self.objh = exist_path_handle
 
         self.path = sim.unpackDoubleTable(sim.getBufferProperty(self.objh, 'customData.PATH'))
         self.pathLengths,self.totalLength = sim.getPathLengths(self.path,7)
@@ -30,7 +34,9 @@ class PathPlanner:
         """
         # if ds > self.totalLength:
         #     ds = self.totalLength
-        return self.sim.getPathInterpolatedConfig(self.path, self.pathLengths, ds)
+        pose_to_path = self.sim.getPathInterpolatedConfig(self.path, self.pathLengths, ds)
+        pose = self.sim.multiplyPoses(self.sim.getObjectPose(self.objh),pose_to_path)
+        return pose
 
     def get_length(self):
         return self.totalLength
@@ -50,6 +56,9 @@ class UR3:
     MAX_JOINT_ACCEL = 100*math.pi / 180
     MAX_JOINT_JERK = 100*math.pi / 180
 
+    _start_tracking_callbacks = []
+    _finish_tracking_callbacks = []
+
     def __init__(self, sim, name):
         self.sim = sim
         self.name = name
@@ -59,6 +68,11 @@ class UR3:
         self.jointh = [sim.getObject(name+"/joint",{'index':i}) for i in range(6)]
         self.effh = sim.getObject(name+"/manipSphere")
         self.tiph = sim.getObject(name+"/tip")
+
+
+        self._tracking_thread = None
+        self._tracking_stop_event = threading.Event()  # Event for stopping the thread
+
 
     def reset_target(self):
         self.sim.setObjectPose(self.effh, [0,0,0,0,0,0,1], self.tiph)
@@ -141,6 +155,15 @@ class UR3:
     def _set_ik_mode(self):
         sim.callScriptFunction("set_ik_mode",self.scripth)
 
+    @classmethod
+    def on_start_tracking(cls,func):
+        cls._start_tracking_callbacks.append(func)
+        return func
+    
+    @classmethod
+    def on_finish_tracking(cls,func):
+        cls._finish_tracking_callbacks.append(func)
+        return func
 
     def tracking(self,path:PathPlanner,vel:float):
         """following the input path (blocking).
@@ -157,6 +180,49 @@ class UR3:
 
         target_pose = self.sim.getPathInterpolatedConfig(path.path, path.pathLengths, ds)    
         self.sim.setObjectPose(self.effh,target_pose)
+
+    def createTrackingTask(self, path: PathPlanner, vel: float):
+        """Create a non-blocking task to follow a given path.
+
+        Args:
+            path (PathPlanner): The path to follow.
+            vel (float): The desired tracking velocity.
+        """
+        self._tracking_stop_event.clear()  # Reset stop event
+
+        def tracking_task():
+            t0 = self.sim.getSimulationTime()
+            while not self._tracking_stop_event.is_set():
+                ds = vel * (self.sim.getSimulationTime() - t0)
+                if ds >= path.get_length():
+                    break  # Stop when reaching the end of the path
+
+                target_pose = path.get_interpolate_pose(ds)
+                self.sim.setObjectPose(self.effh, target_pose)
+                time.sleep(0.05)  # Avoid busy waiting
+
+            # Ensure the final pose is set
+            target_pose = path.get_interpolate_pose(ds)
+            self.sim.setObjectPose(self.effh, target_pose)
+
+            for callback in self._finish_tracking_callbacks:
+                callback(self)
+
+        for callback in self._start_tracking_callbacks:
+            callback(self)
+
+        # Start the tracking thread
+        self._tracking_thread = threading.Thread(target=tracking_task, daemon=True)
+        self._tracking_thread.start()
+
+    def stopTracking(self):
+        """Stop the tracking task if running."""
+        if self._tracking_thread and self._tracking_thread.is_alive():
+            self._tracking_stop_event.set()  # Signal the thread to stop
+            self._tracking_thread.join()  # Wait for thread to finish
+            self._tracking_thread = None
+
+    
 
 
 
